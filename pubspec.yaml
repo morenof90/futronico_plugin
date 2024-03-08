@@ -1,6 +1,6 @@
 name: futronic
 description: A plugin to facilitate the use of futronic devices.
-version: 0.0.9
+version: 1.0.0
 repository: https://github.com/ImPabl0/futronico_plugin
 
 environment:
