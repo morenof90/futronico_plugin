@@ -44,7 +44,7 @@ class Futronico {
 
   // Definindo funções
   Initialize get _initialize =>
-      dll.lookup<NativeFunction<initializeFunc>>("FTRInitialize").asFunction();
+      dll.lookup<NativeFunction<InitializeFunc>>("FTRInitialize").asFunction();
 
   Terminate get _terminate =>
       dll.lookup<NativeFunction<TerminateFunc>>("FTRTerminate").asFunction();

@@ -3,7 +3,7 @@ import 'dart:ffi';
 import 'futronico_types.dart';
 import 'structs.dart';
 
-typedef initializeFunc = FTRAPIRESULT Function();
+typedef InitializeFunc = FTRAPIRESULT Function();
 typedef Initialize = int Function();
 
 typedef TerminateFunc = FTRAPIRESULT Function();
