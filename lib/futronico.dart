@@ -6,7 +6,6 @@ import 'dart:isolate';
 import 'dart:math';
 import 'dart:ui';
 import 'package:ffi/ffi.dart';
-import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'enum/ftr_param.dart';
 import 'futronic_enroll_result.dart';
