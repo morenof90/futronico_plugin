@@ -3,8 +3,10 @@
 import 'dart:async';
 import 'dart:ffi';
 import 'dart:isolate';
+import 'dart:math';
 import 'dart:ui';
 import 'package:ffi/ffi.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'enum/ftr_param.dart';
 import 'futronic_enroll_result.dart';
@@ -70,7 +72,7 @@ class Futronico {
 
   // Definindo métodos públicos
   static SendPort? sendPort;
-  void initialize({SendPort? sendPort}) {
+  void initialize({SendPort? sendPort, double far = 0.05}) {
     Futronico.sendPort = sendPort;
     if (_isInitialized) return;
     int initializeResult = _initialize();
@@ -79,7 +81,7 @@ class Futronico {
       throw FutronicError(FutronicUtils.getErrorMessage(initializeResult));
     }
     _isInitialized = true;
-    configureFutronic();
+    configureFutronic(far: far);
   }
 
   void terminate() {
@@ -93,7 +95,7 @@ class Futronico {
     }
   }
 
-  void configureFutronic({int? maxTemplates}) {
+  void configureFutronic({int? maxTemplates, double far = 0.05}) {
     int configureFrameSource = _ftrSetParam(FtrParam.cbFrameSource, 1);
     int configureMaxTemplates =
         _ftrSetParam(FtrParam.maxModels, maxTemplates ?? 5);
@@ -111,7 +113,9 @@ class Futronico {
     int getWidth = _getParam(FtrParam.imageWidth.value, frameWidthPTR);
     int getHeight = _getParam(FtrParam.imageHeight.value, frameHeightPTR);
     int getSize = _getParam(FtrParam.imageSize.value, frameSizePTR);
-
+    double multiplier = pow(2, 31) - 1;
+    int currFar = (far * multiplier).ceilToDouble().toInt();
+    _setParam(FtrParam.maxFarRequested.value, currFar);
     _imageSize = frameSizePTR.value;
 
     if (getWidth != 0) {
@@ -207,25 +211,32 @@ class Futronico {
 
     await completer.future;
     receivePort.close();
+    _currentIsolate?.kill();
+    _currentIsolate = null;
     return await completer.future;
   }
 
   bool cancelOperation() {
     try {
       terminate();
-      _currentIsolate?.kill(priority: Isolate.immediate);
+      configureFutronic();
+      _currentIsolate?.kill();
+      _currentIsolate = null;
       return true;
     } catch (e) {
       return false;
     }
   }
 
-  Future<bool> verify(List<int> template) async {
+  Future<bool> verify(List<int> template, {double far = 0.05}) async {
     ReceivePort receivePort = ReceivePort();
     Completer<bool> completer = Completer<bool>();
+    if (_currentIsolate != null) {
+      return false;
+    }
     _currentIsolate = await Isolate.spawn((message) {
       terminate();
-      initialize();
+      initialize(far: far);
       Pointer<FTR_DATA> templateToCompare = calloc<FTR_DATA>();
       templateToCompare.ref.dwSize = template.length;
       templateToCompare.ref.pData = calloc<Uint8>(template.length);
@@ -251,6 +262,8 @@ class Futronico {
     });
     await completer.future;
     receivePort.close();
+    _currentIsolate?.kill();
+    _currentIsolate = null;
     return await completer.future;
   }
 

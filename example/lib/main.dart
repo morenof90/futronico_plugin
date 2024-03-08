@@ -100,7 +100,7 @@ class _FutronicExamplePageState extends State<FutronicExamplePage> {
               });
               hasReceivedSomeBiometry = true;
             } else {
-              bool isTheSame = await futronico.verify(ultimaDigital);
+              bool isTheSame = await futronico.verify(ultimaDigital, far: 0.01);
               setState(() {
                 textoResultado =
                     isTheSame ? "Digital é a mesma" : "Digital é feike";
