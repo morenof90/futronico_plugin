@@ -14,7 +14,7 @@ class FutronicUtils {
   static const int _FTR_RETCODE_ALREADY_IN_USE = 4;
   static const int _FTR_RETCODE_INVALID_PURPOSE = 5;
   static const int _FTR_RETCODE_UNABLE_TO_CAPTURE = 6;
-  static const int _FTR_RETCODE_CANCELED_BY_USER = 7;
+  static const int FTR_RETCODE_CANCELED_BY_USER = 7;
   static const int _FTR_RETCODE_NO_MORE_RETRIES = 8;
   static const int _FTR_RETCODE_INCONSISTENT_SAMPLING = 10;
   static const int _FTR_RETCODE_TRIAL_EXPIRED = 11;
@@ -29,6 +29,12 @@ class FutronicUtils {
   static const int _FTR_RETCODE_FRAME_SOURCE_CHANGED = 208;
   static const int _FTR_RETCODE_INCOMPATIBLE_SOFTWARE = 209;
 
+  static const int FTR_CANCEL = 1;
+  static const int FTR_CONTINUE = 2;
+
+  static const int FTR_PURPOSE_IDENTIFY = 2;
+  static const int FTR_PURPOSE_ENROLL = 3;
+
   // transforme todos os codigos acima para um Map<int, String> com uma mensagem legível para o usuário
   static final Map<int, String> _mapErrorCodes = {
     _FTR_RETCODE_NO_MEMORY:
@@ -39,7 +45,7 @@ class FutronicUtils {
     _FTR_RETCODE_INVALID_PURPOSE:
         "O propósito da chamada da função é inválido.",
     _FTR_RETCODE_UNABLE_TO_CAPTURE: "Não foi possível capturar a imagem.",
-    _FTR_RETCODE_CANCELED_BY_USER: "A operação foi cancelada pelo usuário.",
+    FTR_RETCODE_CANCELED_BY_USER: "A operação foi cancelada pelo usuário.",
     _FTR_RETCODE_NO_MORE_RETRIES: "Não há mais tentativas disponíveis.",
     _FTR_RETCODE_INCONSISTENT_SAMPLING: "A amostragem é inconsistente.",
     _FTR_RETCODE_TRIAL_EXPIRED: "O período de teste expirou.",
@@ -71,9 +77,10 @@ class FutronicUtils {
 }
 
 class FutronicError implements Exception {
+  final bool fatal;
   final String message;
 
-  FutronicError(this.message);
+  FutronicError(this.message, [this.fatal = false]);
   @override
   String toString() {
     return message;

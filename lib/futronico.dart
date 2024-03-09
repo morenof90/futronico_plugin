@@ -35,6 +35,8 @@ class Futronico {
       StreamController<FutronicStatus>.broadcast();
 
   Isolate? _currentIsolate;
+  // Will be used as operation context to stop the operation in course
+  static Pointer<Int32> operationContinue = calloc<Int32>();
 
   //Definindo buffers
   int _imageSize = 0;
@@ -85,6 +87,7 @@ class Futronico {
 
   void terminate() {
     try {
+      cancelOperation();
       int terminateResult = _terminate();
       if (terminateResult != 0) {
         throw FutronicError(FutronicUtils.getErrorMessage(terminateResult));
@@ -143,6 +146,9 @@ class Futronico {
 
   static void callback(FTR_USER_CTX context, int stateMask,
       Pointer<FTR_RESPONSE> response, int signal, Pointer<FTR_BITMAP> pBitmap) {
+    // This will cancel the operation in course
+    response.value = context.value;
+
     FutronicStatus actualStatus =
         FutronicStatus(currentStatus: signal, response: response);
     sendPort?.send(actualStatus);
@@ -157,40 +163,22 @@ class Futronico {
     }
   }
 
-  List<int> enrollX() {
-    int enrollDataSize = sizeOf<FTR_ENROLL_DATA>();
-    _ftrEnrollDataBuffer.ref.dwSize = enrollDataSize;
-    int enrollResult =
-        _enrollX(nullptr, 3, _ftrDataBuffer, _ftrEnrollDataBuffer);
-
-    if (enrollResult != 0) {
-      String errorMessage = FutronicUtils.getErrorMessage(enrollResult);
-
-      throw FutronicError(errorMessage);
-    }
-    List<int> template = _ftrDataBuffer.ref.pData
-        .asTypedList(_ftrDataBuffer.ref.dwSize)
-        .toList();
-    sendPort
-        ?.send(FutronicStatus.fromQuality(_ftrEnrollDataBuffer.ref.dwQuality));
-    sendPort?.send(template);
-    return template;
-  }
-
-  Future<FutronicEnrollResult> enrollTemplate() async {
+  Future<FutronicEnrollResult> enrollTemplate(
+      {bool purposeIdentify = false}) async {
     ReceivePort receivePort = ReceivePort();
     FutronicEnrollResult futronicEnrollResult = FutronicEnrollResult();
     Completer<FutronicEnrollResult> completer =
         Completer<FutronicEnrollResult>();
 
-    _currentIsolate = await Isolate.spawn((message) async {
-      BackgroundIsolateBinaryMessenger.ensureInitialized(
-          message[0] as RootIsolateToken);
-      DartPluginRegistrant.ensureInitialized();
-      terminate();
-      initialize(sendPort: message[1] as SendPort);
-      enrollX();
-    }, [RootIsolateToken.instance!, receivePort.sendPort], onError: sendPort);
+    _currentIsolate = await Isolate.spawn(
+        _isolatedEnroll,
+        [
+          RootIsolateToken.instance!,
+          receivePort.sendPort,
+          purposeIdentify,
+          operationContinue.address,
+        ],
+        onError: sendPort);
     _currentIsolate?.addErrorListener(receivePort.sendPort);
     receivePort.listen((message) {
       if (message is FutronicStatus) {
@@ -203,24 +191,25 @@ class Futronico {
         futronicEnrollResult.enrollTemplate = message;
         completer.complete(futronicEnrollResult);
       }
-      if (message is List<String>) {
-        completer.completeError(FutronicError(message[0]));
+      if (message is FutronicError) {
+        if (message.fatal) {
+          completer.completeError(message);
+        } else {
+          futronicEnrollResult.enrollTemplate = [];
+          futronicEnrollResult.quality = -1;
+          completer.complete(futronicEnrollResult);
+        }
       }
     });
 
-    await completer.future;
+    final value = await completer.future;
     receivePort.close();
-    _currentIsolate?.kill();
-    _currentIsolate = null;
-    return await completer.future;
+    return value;
   }
 
   bool cancelOperation() {
     try {
-      terminate();
-      configureFutronic();
-      _currentIsolate?.kill();
-      _currentIsolate = null;
+      operationContinue.value = FutronicUtils.FTR_CANCEL;
       return true;
     } catch (e) {
       return false;
@@ -230,39 +219,29 @@ class Futronico {
   Future<bool> verify(List<int> template, {double far = 0.05}) async {
     ReceivePort receivePort = ReceivePort();
     Completer<bool> completer = Completer<bool>();
-    if (_currentIsolate != null) {
-      return false;
-    }
-    _currentIsolate = await Isolate.spawn((message) {
-      terminate();
-      initialize(far: far);
-      Pointer<FTR_DATA> templateToCompare = calloc<FTR_DATA>();
-      templateToCompare.ref.dwSize = template.length;
-      templateToCompare.ref.pData = calloc<Uint8>(template.length);
-      templateToCompare.ref.pData
-          .asTypedList(template.length)
-          .setAll(0, template);
-      Pointer<Bool> bResult = calloc<Bool>();
-      int verifyResult = _verify(nullptr, templateToCompare, bResult, 0);
-      if (verifyResult != 0) {
-        throw FutronicError(FutronicUtils.getErrorMessage(verifyResult));
-      }
-      message.send(bResult.value);
-    }, receivePort.sendPort);
+    _currentIsolate = await Isolate.spawn(_isolatedVerify, [
+      RootIsolateToken.instance!,
+      receivePort.sendPort,
+      template,
+      far,
+      operationContinue.address
+    ]);
 
     _currentIsolate?.addErrorListener(receivePort.sendPort);
     receivePort.listen((message) {
       if (message is bool) {
         completer.complete(message);
       }
-      if (message is List<String>) {
-        completer.completeError(FutronicError(message[0]));
+      if (message is FutronicError) {
+        if (message.fatal) {
+          completer.completeError(message);
+        } else {
+          completer.complete(false);
+        }
       }
     });
     await completer.future;
     receivePort.close();
-    _currentIsolate?.kill();
-    _currentIsolate = null;
     return await completer.future;
   }
 
@@ -272,5 +251,85 @@ class Futronico {
       throw FutronicError(FutronicUtils.getErrorMessage(setParamResult));
     }
     return setParamResult;
+  }
+
+  static _isolatedEnroll(param) {
+    final RootIsolateToken instance = param[0];
+    final SendPort sendPort = param[1];
+    final bool identifyPorpuse = param[2];
+    final int isCanceledAddress = param[3];
+
+    BackgroundIsolateBinaryMessenger.ensureInitialized(instance);
+    DartPluginRegistrant.ensureInitialized();
+    Futronico().terminate();
+    Futronico().initialize(sendPort: sendPort);
+
+    int purpose = identifyPorpuse
+        ? FutronicUtils.FTR_PURPOSE_IDENTIFY
+        : FutronicUtils.FTR_PURPOSE_ENROLL;
+
+    int enrollDataSize = sizeOf<FTR_ENROLL_DATA>();
+    _ftrEnrollDataBuffer.ref.dwSize = enrollDataSize;
+
+    // Starts the operation
+    final isCanceledPtr = Pointer<Int32>.fromAddress(isCanceledAddress);
+    isCanceledPtr.value = FutronicUtils.FTR_CONTINUE;
+
+    int enrollResult = Futronico()._enrollX(
+        Pointer.fromAddress(isCanceledAddress),
+        purpose,
+        _ftrDataBuffer,
+        _ftrEnrollDataBuffer);
+
+    if (enrollResult != 0) {
+      final error = isCanceledPtr.value == FutronicUtils.FTR_CANCEL
+          ? FutronicError(FutronicUtils.getErrorMessage(
+              FutronicUtils.FTR_RETCODE_CANCELED_BY_USER))
+          : FutronicError(FutronicUtils.getErrorMessage(enrollResult), true);
+
+      Isolate.exit(sendPort, error);
+    }
+    List<int> template = _ftrDataBuffer.ref.pData
+        .asTypedList(_ftrDataBuffer.ref.dwSize)
+        .toList();
+    sendPort
+        .send(FutronicStatus.fromQuality(_ftrEnrollDataBuffer.ref.dwQuality));
+
+    Isolate.exit(sendPort, template);
+  }
+
+  static _isolatedVerify(param) {
+    final RootIsolateToken instance = param[0];
+    final SendPort sendPort = param[1];
+    final List<int> template = param[2];
+    final double far = param[3];
+    final int isCanceledAddress = param[4];
+
+    BackgroundIsolateBinaryMessenger.ensureInitialized(instance);
+    DartPluginRegistrant.ensureInitialized();
+    Futronico().terminate();
+    Futronico().initialize(sendPort: sendPort, far: far);
+
+    final isCanceledPtr = Pointer<Int32>.fromAddress(isCanceledAddress);
+    isCanceledPtr.value = FutronicUtils.FTR_CONTINUE;
+
+    Pointer<FTR_DATA> templateToCompare = calloc<FTR_DATA>();
+    templateToCompare.ref.dwSize = template.length;
+    templateToCompare.ref.pData = calloc<Uint8>(template.length);
+    templateToCompare.ref.pData
+        .asTypedList(template.length)
+        .setAll(0, template);
+    Pointer<Bool> bResult = calloc<Bool>();
+    int verifyResult = Futronico()._verify(
+        Pointer.fromAddress(isCanceledAddress), templateToCompare, bResult, 0);
+    if (verifyResult != 0) {
+      final error = isCanceledPtr.value == FutronicUtils.FTR_CANCEL
+          ? FutronicError(FutronicUtils.getErrorMessage(
+              FutronicUtils.FTR_RETCODE_CANCELED_BY_USER))
+          : FutronicError(FutronicUtils.getErrorMessage(verifyResult), true);
+
+      Isolate.exit(sendPort, error);
+    }
+    Isolate.exit(sendPort, bResult.value);
   }
 }

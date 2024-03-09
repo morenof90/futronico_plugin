@@ -1,7 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:futronic/enum/ftr_signal_status.dart';
-import 'package:futronic/futronic_enroll_result.dart';
-import 'package:futronic/futronic_utils.dart';
 import 'package:futronic/futronico.dart';
 
 void main() {
@@ -93,6 +91,16 @@ class _FutronicExamplePageState extends State<FutronicExamplePage> {
             if (!hasReceivedSomeBiometry) {
               FutronicEnrollResult enrollResult =
                   await futronico.enrollTemplate();
+
+              // Operation has been canceled
+              if (enrollResult.quality < 0) {
+                setState(() {
+                  textoResultado = "Leitura Cancelada";
+                });
+
+                return;
+              }
+
               ultimaDigital = enrollResult.enrollTemplate;
               setState(() {
                 textoResultado =
