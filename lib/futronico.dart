@@ -57,6 +57,13 @@ class Futronico {
   Verify get _verify =>
       dll.lookup<NativeFunction<VerifyFunc>>("FTRVerify").asFunction();
 
+  Identify get _identify =>
+      dll.lookup<NativeFunction<IndentyFunc>>("FTRIdentify").asFunction();
+
+  FTRSetBaseTemplate get _setBaseTemplate => dll
+      .lookup<NativeFunction<FTRSetBaseTemplateFunc>>("FTRSetBaseTemplate")
+      .asFunction();
+
   FTRSetParam get _setParam =>
       dll.lookup<NativeFunction<FTRSetParamFunc>>("FTRSetParam").asFunction();
 
@@ -245,6 +252,36 @@ class Futronico {
     return await completer.future;
   }
 
+  Future<int> identify(
+      List<List<int>> templates, List<int> baseTemplate) async {
+    ReceivePort receivePort = ReceivePort();
+    Completer<int> completer = Completer<int>();
+    _currentIsolate = await Isolate.spawn(_isolatedIdentify, [
+      RootIsolateToken.instance!,
+      receivePort.sendPort,
+      templates,
+      baseTemplate,
+      operationContinue.address
+    ]);
+
+    _currentIsolate?.addErrorListener(receivePort.sendPort);
+    receivePort.listen((message) {
+      if (message is int) {
+        completer.complete(message);
+      }
+      if (message is FutronicError) {
+        if (message.fatal) {
+          completer.completeError(message);
+        } else {
+          completer.complete(-1);
+        }
+      }
+    });
+    await completer.future;
+    receivePort.close();
+    return await completer.future;
+  }
+
   int _ftrSetParam(FtrParam param, int paramValue) {
     int setParamResult = _setParam(param.value, paramValue);
     if (setParamResult != 0) {
@@ -331,5 +368,97 @@ class Futronico {
       Isolate.exit(sendPort, error);
     }
     Isolate.exit(sendPort, bResult.value);
+  }
+
+  static _isolatedIdentify(param) {
+    final RootIsolateToken instance = param[0];
+    final SendPort sendPort = param[1];
+    final List<List<int>> templates = param[2];
+    final List<int> baseTemplate = param[3];
+    final int isCanceledAddress = param[4];
+
+    BackgroundIsolateBinaryMessenger.ensureInitialized(instance);
+    DartPluginRegistrant.ensureInitialized();
+    Futronico().terminate();
+    Futronico().initialize(sendPort: sendPort);
+
+    final isCanceledPtr = Pointer<Int32>.fromAddress(isCanceledAddress);
+    isCanceledPtr.value = FutronicUtils.FTR_CONTINUE;
+
+    Pointer<FTR_IDENTIFY_ARRAY> templatesToMatch = calloc<FTR_IDENTIFY_ARRAY>();
+    templatesToMatch.ref.totalNumber = templates.length;
+    templatesToMatch.ref.pMembers =
+        calloc<FTR_IDENTIFY_RECORD>(templates.length);
+
+    Pointer<FTR_MATCHED_X_ARRAY> matches = calloc<FTR_MATCHED_X_ARRAY>();
+    matches.ref.totalNumber = templates.length;
+    matches.ref.pMembers = calloc<FTR_MATCHED_X_RECORD>(templates.length);
+
+    for (int i = 0; i < templates.length; i++) {
+      String keyValue = i.toString();
+      for (int j = 0; j < FutronicUtils.FTR_KEY_VALUE_SIZE; j++) {
+        templatesToMatch.ref.pMembers[i].keyValue[j] = 0;
+        matches.ref.pMembers[i].keyValue[j] = 0;
+        if (j < keyValue.length) {
+          templatesToMatch.ref.pMembers[i].keyValue[j] = keyValue.codeUnitAt(j);
+        }
+      }
+
+      templatesToMatch.ref.pMembers[i].pData = calloc<FTR_DATA>();
+      templatesToMatch.ref.pMembers[i].pData.ref.dwSize = templates[i].length;
+      templatesToMatch.ref.pMembers[i].pData.ref.pData =
+          calloc<Uint8>(templates[i].length);
+      templatesToMatch.ref.pMembers[i].pData.ref.pData
+          .asTypedList(templates[i].length)
+          .setAll(0, templates[i]);
+    }
+
+    Pointer<Uint32> resNum = calloc<Uint32>();
+    resNum.value = 0;
+
+    Pointer<FTR_DATA> templateToCompare = calloc<FTR_DATA>();
+    templateToCompare.ref.dwSize = baseTemplate.length;
+    templateToCompare.ref.pData = calloc<Uint8>(baseTemplate.length);
+    templateToCompare.ref.pData
+        .asTypedList(baseTemplate.length)
+        .setAll(0, baseTemplate);
+
+    int result = Futronico()._setBaseTemplate(templateToCompare);
+    if (result != 0) {
+      Isolate.exit(
+          sendPort, FutronicError(FutronicUtils.getErrorMessage(result), true));
+    }
+
+    result = Futronico()._setParam(FtrParam.maxFarRequested.value, 21474837);
+    if (result != 0) {
+      Isolate.exit(
+          sendPort, FutronicError(FutronicUtils.getErrorMessage(result), true));
+    }
+
+    int indentifyResult =
+        Futronico()._identify(templatesToMatch, resNum, matches);
+
+    if (indentifyResult != 0) {
+      final error = isCanceledPtr.value == FutronicUtils.FTR_CANCEL
+          ? FutronicError(FutronicUtils.getErrorMessage(
+              FutronicUtils.FTR_RETCODE_CANCELED_BY_USER))
+          : FutronicError(FutronicUtils.getErrorMessage(indentifyResult), true);
+
+      Isolate.exit(sendPort, error);
+    }
+
+    if (resNum.value != 1) {
+      Isolate.exit(sendPort, -1);
+    }
+
+    String keyValue = "";
+    for (int i = 0; i < FutronicUtils.FTR_KEY_VALUE_SIZE; i++) {
+      if (matches.ref.pMembers[0].keyValue[i] != 0) {
+        keyValue += String.fromCharCode(matches.ref.pMembers[0].keyValue[i]);
+      }
+    }
+
+    keyValue = keyValue.toLowerCase().trim();
+    Isolate.exit(sendPort, int.tryParse(keyValue));
   }
 }
