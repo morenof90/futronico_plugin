@@ -35,6 +35,8 @@ class FutronicUtils {
   static const int FTR_PURPOSE_IDENTIFY = 2;
   static const int FTR_PURPOSE_ENROLL = 3;
 
+  static const int FTR_KEY_VALUE_SIZE = 16;
+
   // transforme todos os codigos acima para um Map<int, String> com uma mensagem legível para o usuário
   static final Map<int, String> _mapErrorCodes = {
     _FTR_RETCODE_NO_MEMORY:

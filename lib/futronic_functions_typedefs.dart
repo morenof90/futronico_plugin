@@ -27,6 +27,17 @@ typedef VerifyFunc = FTRAPIRESULT Function(Pointer ftrUserCtx,
 typedef Verify = int Function(Pointer ftrUserCtx,
     Pointer<FTR_DATA> pTemplateToCompare, Pointer<Bool> bResult, int nFar);
 
+typedef IndentyFunc = FTRAPIRESULT Function(
+    Pointer<FTR_IDENTIFY_ARRAY> pTemplatesToCompare,
+    Pointer<Uint32> matchNumber,
+    Pointer<FTR_MATCHED_X_ARRAY> pMatches);
+typedef Identify = int Function(Pointer<FTR_IDENTIFY_ARRAY> pTemplatesToCompare,
+    Pointer<Uint32> matchNumber, Pointer<FTR_MATCHED_X_ARRAY> pMatches);
+
+typedef FTRSetBaseTemplateFunc = FTRAPIRESULT Function(
+    Pointer<FTR_DATA> pTemplate);
+typedef FTRSetBaseTemplate = int Function(Pointer<FTR_DATA> pTemplate);
+
 typedef FTRSetParamFunc = Int32 Function(Int32 param, Int32 paramValue);
 typedef FTRSetParam = int Function(int param, int paramValue);
 

@@ -10,3 +10,4 @@ typedef FTR_USER_CTX = Pointer<Int32>;
 typedef FTR_STATE = Int32;
 typedef FTR_RESPONSE = Int32;
 typedef FTR_SIGNAL = Int32;
+typedef FTR_DATA_KEY = Array<Char>;
