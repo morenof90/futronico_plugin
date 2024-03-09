@@ -81,7 +81,7 @@ class _FutronicExamplePageState extends State<FutronicExamplePage> {
                 onPressed: () {
                   futronico.cancelOperation();
                 },
-                child: Text("Cancelar leitura"))
+                child: const Text("Cancelar leitura"))
           ],
         ),
       ),
